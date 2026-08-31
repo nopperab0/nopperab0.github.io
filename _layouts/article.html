@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  {% include head.html %}
+</head>
+<body>
+  <div class="background-shade" aria-hidden="true"></div>
+  {% include header.html %}
+  <main class="page-shell article-shell">
+    <article class="content-card article-card">
+      <header class="article-header">
+        <a class="back-link" href="{{ '/writing/' | relative_url }}">← Writing</a>
+        <h1>{{ page.title }}</h1>
+        {% if page.subtitle %}<p class="article-subtitle">{{ page.subtitle }}</p>{% endif %}
+        {% if page.category %}<div class="article-category">{{ page.category }}</div>{% endif %}
+      </header>
+      <div class="article-body">
+        {{ content }}
+      </div>
+    </article>
+  </main>
+  {% include footer.html %}
+</body>
+</html>
