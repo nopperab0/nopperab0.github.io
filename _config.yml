@@ -1,0 +1,35 @@
+title: "Noppera-bō"
+tagline: "Physics · Mathematics · Machine Learning"
+description: "Personal notes and expository writing on mathematical physics and machine learning."
+author: "Noppera-bō"
+url: "https://nopperab0.github.io"
+baseurl: ""
+github_username: "nopperab0"
+
+markdown: kramdown
+kramdown:
+  input: GFM
+  math_engine: mathjax
+
+collections:
+  articles:
+    output: true
+    permalink: /writing/:name/
+
+defaults:
+  - scope:
+      path: ""
+      type: articles
+    values:
+      layout: article
+
+article_categories:
+  - "Mathematical Physics"
+  - "Machine Learning"
+  - "Notes"
+
+exclude:
+  - README.md
+  - HOW_TO_USE.md
+  - Gemfile
+  - Gemfile.lock
