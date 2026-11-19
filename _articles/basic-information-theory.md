@@ -58,6 +58,8 @@ I(X;Y)&=I(X;Y,Z)=I(X;Z)+I(X;Y\mid Z)\ge I(X;Z).
 \end{aligned}
 $$
 
+In an entropy-based decision tree, $$S$$ records which side of a candidate split a sample falls on, and $$Y$$ is its class label. The split with the largest $$I(Y;S)$$ removes the most label uncertainty at that node. [Decision trees in classical ML]({{ '/writing/classical-ml/' | relative_url }}#decision-tree)
+
 ## Coding and capacity
 
 In bits, Shannon code lengths $$\ell(x)=\lceil-\log_2p(x)\rceil$$ give an average length within one bit of the prefix-coding lower bound.
@@ -94,13 +96,24 @@ $$
 
 Equality holds exactly when $$p=q$$. Mutual information is $$D_{\rm KL}(p_{XY}\|p_Xp_Y)$$.
 
+In supervised learning, the data distribution $$p$$ is fixed, so $$H(p)$$ is constant. Minimizing cross-entropy therefore minimizes $$D_{\rm KL}(p\|q)$$, the extra average log loss incurred by predicting with $$q$$.
+
 ### Classification and language models
 
-With a one-hot label, cross-entropy is the negative log probability of the observed class. Averaging over examples gives the negative log-likelihood per example.
+At input $$x$$, $$p(\cdot\mid x)$$ is the true label distribution and $$q_\theta(\cdot\mid x)$$ is the classifier's prediction. Each observed label contributes just $$-\ln q_\theta(y_i\mid x_i)$$ because its target vector is one-hot.
 
 $$
 \begin{aligned}
-\mathcal L(\theta)&=-\frac1n\sum_i\ln q_\theta(y_i\mid x_i),\\
+\mathcal L(\theta)&=\mathbb E_{X,Y}[-\ln q_\theta(Y\mid X)]\\
+&=H(Y\mid X)+\mathbb E_X D_{\rm KL}\big(p(\cdot\mid X)\|q_\theta(\cdot\mid X)\big),\\
+\widehat{\mathcal L}(\theta)&=-\frac1n\sum_i\ln q_\theta(y_i\mid x_i).
+\end{aligned}
+$$
+
+The training average is the negative log-likelihood per example. For softmax logits $$z$$ and target probabilities $$t$$, the gradient is predicted probability minus target probability.
+
+$$
+\begin{aligned}
 q_j&=\frac{e^{z_j}}{\sum_k e^{z_k}},\qquad
 H(t,q)=\ln\sum_k e^{z_k}-\sum_k t_k z_k,\\
 \partial_{z_j}H(t,q)&=q_j-t_j .
@@ -115,7 +128,7 @@ $$
 
 ## Natural gradient
 
-Suppose we want a small update measured by how much the model distribution changes. For a smooth model with fixed support, the second-order approximation of KL gives
+Equal-sized parameter steps can change predicted probabilities by different amounts. Natural gradient uses KL to account for that sensitivity. For a smooth model with fixed support, the second-order approximation of KL gives
 
 $$
 \begin{aligned}
@@ -137,7 +150,7 @@ For a policy, take the score $$s=\nabla_\theta\ln\pi_\theta(a\mid x)$$ and avera
 
 ## KL-regularized policies
 
-For a fixed input, reward $$r(a)$$ and reference policy $$\pi_0$$, define $$\pi^*$$ by reweighting the reference by exponentiated reward.
+For a fixed input, let $$r(a)$$ be the reward and $$\pi_0$$ the reference policy. The KL term penalizes departure from $$\pi_0$$, and $$\beta$$ sets the strength of the penalty.
 
 $$
 \begin{aligned}
@@ -152,7 +165,7 @@ For $$\beta>0$$, nonnegativity of KL makes $$\pi^*$$ optimal.
 
 ## On-policy distillation
 
-Fix a prompt and let the student $$p_s$$ generate tokens. One distillation loss compares student and teacher $$p_t$$ using reverse KL at the prefixes the student visits. [Agarwal et al., On-Policy Distillation](https://arxiv.org/abs/2306.13649)
+At a fixed prefix, using the teacher $$p_t$$ as a soft target for the student $$p_s$$ minimizes $$D_{\rm KL}(p_t\|p_s)$$ via cross-entropy. In on-policy distillation, prefixes come from the student's own outputs. A reverse-KL version uses $$D_{\rm KL}(p_s\|p_t)$$ at those prefixes. [Agarwal et al., On-Policy Distillation](https://arxiv.org/abs/2306.13649)
 
 $$
 \begin{aligned}
