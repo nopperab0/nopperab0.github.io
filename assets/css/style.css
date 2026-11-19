@@ -106,6 +106,7 @@ nav a.active { color: #17191e; font-weight: 650; }
 .button.primary:hover { color: white; opacity: .88; }
 
 .section-block { border-top: 1px solid var(--line); padding-top: 30px; margin-top: 28px; }
+.section-block[id] { scroll-margin-top: 5rem; }
 .section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 20px; }
 .section-heading h2, .section-block h2, .writing-group > h2 {
   font-family: var(--serif);
@@ -220,7 +221,6 @@ nav a.active { color: #17191e; font-weight: 650; }
   text-align: center;
   text-shadow: 0 1px 8px rgba(255,255,255,.9);
 }
-.footer-dot { padding: 0 7px; }
 
 mjx-container[jax="CHTML"][display="true"] { overflow-x: auto; overflow-y: hidden; padding: .3em 0; }
 

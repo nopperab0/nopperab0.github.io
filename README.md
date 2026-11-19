@@ -1,6 +1,6 @@
-# Noppera-bō — Mathematical Writing Site
+# Noppera-bō
 
-A minimal GitHub Pages site for mathematical and technical articles.
+[Personal blog](https://nopperab0.github.io/) with papers, project repositories, and technical notes.
 
 - Jekyll collection instead of dated posts
 - Markdown articles

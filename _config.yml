@@ -1,10 +1,9 @@
 title: "Noppera-bō"
 tagline: "Physics · Mathematics · Machine Learning"
-description: "Personal notes and expository writing on mathematical physics and machine learning."
+description: "Papers, projects, and notes on physics, mathematics, and machine learning."
 author: "Noppera-bō"
 url: "https://nopperab0.github.io"
 baseurl: ""
-github_username: "nopperab0"
 
 markdown: kramdown
 kramdown:
@@ -22,11 +21,6 @@ defaults:
       type: articles
     values:
       layout: article
-
-article_categories:
-  - "Mathematical Physics"
-  - "Machine Learning"
-  - "Notes"
 
 exclude:
   - README.md
