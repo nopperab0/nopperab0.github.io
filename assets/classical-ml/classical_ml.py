@@ -1,505 +1,320 @@
 import numpy as np
-from scipy.optimize import minimize
 from scipy.special import expit, logsumexp
+from scipy.stats import multivariate_normal
+
+
+def majority(labels):
+    values, counts = np.unique(labels, return_counts=True)
+    return values[counts.argmax()]
+
+
+def splits(X, features):
+    for j in features:
+        values = np.unique(X[:, j])
+        for t in values[:-1] / 2 + values[1:] / 2:
+            left = X[:, j] <= t
+            if left.any() and not left.all():
+                yield j, t, left
 
 
 class LinearRegression:
+    def __init__(self, l2=0.0):
+        self.l2 = l2
+
     def fit(self, X, y):
-        X, y = np.asarray(X, dtype=float), np.asarray(y, dtype=float)
-        center, target_mean = X.mean(axis=0), y.mean()
-        self.coef_ = self._solve(X - center, y - target_mean)
-        self.intercept_ = target_mean - center @ self.coef_
+        X, y = np.asarray(X, float), np.asarray(y, float)
+        x_mean, y_mean = X.mean(axis=0), y.mean()
+        penalty = np.sqrt(self.l2) * np.eye(X.shape[1])
+        A = np.vstack([X - x_mean, penalty])
+        z = np.r_[y - y_mean, np.zeros(X.shape[1])]
+        self.w = np.linalg.lstsq(A, z, rcond=None)[0]
+        self.b = y_mean - x_mean @ self.w
         return self
 
-    def _solve(self, X, y):
-        return np.linalg.lstsq(X, y, rcond=None)[0]
-
     def predict(self, X):
-        return np.asarray(X) @ self.coef_ + self.intercept_
+        return np.asarray(X) @ self.w + self.b
 
 
 class RidgeRegression(LinearRegression):
-    def __init__(self, alpha=1.0):
-        if alpha < 0:
-            raise ValueError("alpha must be nonnegative")
-        self.alpha = alpha
-
-    def _solve(self, X, y):
-        d = X.shape[1]
-        design = np.vstack((X, np.sqrt(self.alpha) * np.eye(d)))
-        target = np.r_[y, np.zeros(d)]
-        return super()._solve(design, target)
+    def __init__(self, l2=1.0):
+        super().__init__(l2=l2)
 
 
 class LogisticRegression:
-    def __init__(self, l2=0.02, steps=250):
-        if l2 < 0 or steps < 1:
-            raise ValueError("expected nonnegative l2 and at least one step")
-        self.l2, self.steps = l2, steps
-
-    def fit(self, X, y):
-        X = np.asarray(X, dtype=float)
-        self.classes_, target = np.unique(y, return_inverse=True)
-        if len(self.classes_) != 2:
-            raise ValueError("expected two classes")
-        design = np.column_stack((X, np.ones(len(X))))
-        weights = np.zeros(design.shape[1])
-        lipschitz = np.linalg.norm(design, ord=2)**2 / (4 * len(X)) + self.l2
-        for _ in range(self.steps):
-            residual = expit(design @ weights) - target
-            gradient = design.T @ residual / len(X)
-            gradient[:-1] += self.l2 * weights[:-1]
-            weights -= gradient / lipschitz
-        self.coef_, self.intercept_ = weights[:-1], weights[-1]
+    def fit(self, X, y, steps=300):
+        A = np.c_[X, np.ones(len(X))]
+        y = np.asarray(y)
+        self.w = np.zeros(A.shape[1])
+        step = 4 / np.linalg.norm(A, ord=2)**2
+        for _ in range(steps):
+            self.w -= step * (A.T @ (expit(A @ self.w) - y))
         return self
 
     def predict_proba(self, X):
-        p = expit(np.asarray(X) @ self.coef_ + self.intercept_)
-        return np.column_stack((1 - p, p))
+        return expit(np.asarray(X) @ self.w[:-1] + self.w[-1])
 
     def predict(self, X):
-        return self.classes_[(self.predict_proba(X)[:, 1] >= 0.5).astype(int)]
+        return (self.predict_proba(X) >= 0.5).astype(int)
 
 
 class GaussianNaiveBayes:
-    def __init__(self, min_variance=1e-9):
-        if min_variance <= 0:
-            raise ValueError("min_variance must be positive")
-        self.min_variance = min_variance
-
     def fit(self, X, y):
-        X, y = np.asarray(X, dtype=float), np.asarray(y)
-        self.classes_, counts = np.unique(y, return_counts=True)
-        groups = [X[y == label] for label in self.classes_]
-        self.mean_ = np.array([group.mean(axis=0) for group in groups])
-        variances = np.array([group.var(axis=0) for group in groups])
-        self.var_ = np.maximum(variances, self.min_variance)
-        self.log_prior_ = np.log(counts / len(X))
+        X, y = np.asarray(X, float), np.asarray(y)
+        self.classes, counts = np.unique(y, return_counts=True)
+        groups = [X[y == c] for c in self.classes]
+        self.mean = np.array([group.mean(axis=0) for group in groups])
+        self.var = np.maximum([group.var(axis=0) for group in groups], 1e-9)
+        self.log_prior = np.log(counts / len(y))
         return self
 
-    def _log_joint(self, X):
-        diff = np.asarray(X)[:, None, :] - self.mean_
-        terms = np.log(2 * np.pi * self.var_) + diff**2 / self.var_
-        return self.log_prior_ - 0.5 * terms.sum(axis=2)
-
-    def predict_proba(self, X):
-        log_joint = self._log_joint(X)
-        return np.exp(log_joint - logsumexp(log_joint, axis=1, keepdims=True))
-
     def predict(self, X):
-        return self.classes_[self._log_joint(X).argmax(axis=1)]
+        diff = np.asarray(X)[:, None, :] - self.mean
+        log_joint = self.log_prior - 0.5 * (np.log(self.var) + diff**2 / self.var).sum(axis=2)
+        return self.classes[log_joint.argmax(axis=1)]
 
 
 class SVM:
-    def __init__(self, C=3.0, kernel="rbf", gamma=1.0):
-        if C <= 0 or gamma <= 0 or kernel not in {"linear", "rbf"}:
-            raise ValueError("expected positive C and gamma and a linear or RBF kernel")
-        self.C, self.kernel, self.gamma = C, kernel, gamma
-
-    def _kernel(self, X, Z):
-        dot = X @ Z.T
-        if self.kernel == "linear":
-            return dot
-        distance = (X**2).sum(axis=1)[:, None] + (Z**2).sum(axis=1) - 2 * dot
-        return np.exp(-self.gamma * np.maximum(distance, 0))
-
-    def fit(self, X, y):
-        X = np.asarray(X, dtype=float)
-        self.classes_, target = np.unique(y, return_inverse=True)
-        if len(self.classes_) != 2:
-            raise ValueError("expected two classes")
-        signs = 2.0 * target - 1
-        kernel = self._kernel(X, X)
-        gram = signs[:, None] * kernel * signs
-
-        def objective(alpha):
-            product = gram @ alpha
-            return 0.5 * (alpha @ product) - alpha.sum(), product - 1
-
-        result = minimize(
-            objective, np.zeros(len(X)), method="SLSQP", jac=True,
-            bounds=[(0, self.C)] * len(X),
-            constraints={"type": "eq", "fun": lambda a: signs @ a,
-                         "jac": lambda a: signs},
-            options={"ftol": 1e-9, "maxiter": 300},
-        )
-        if not result.success:
-            raise RuntimeError(result.message)
-        alpha = result.x
-        tol = min(1e-6, self.C / 4)
-        at_zero, at_limit = alpha <= tol, alpha >= self.C - tol
-        free = ~(at_zero | at_limit)
-        offsets = signs - kernel @ (alpha * signs)
-        if free.any():
-            self.intercept_ = offsets[free].mean()
-        else:
-            positive = signs > 0
-            lower = (at_zero & positive) | (at_limit & ~positive)
-            upper = (at_zero & ~positive) | (at_limit & positive)
-            self.intercept_ = (offsets[lower].max() + offsets[upper].min()) / 2
-        self.support_ = X[~at_zero]
-        self.dual_coef_ = (alpha * signs)[~at_zero]
+    def fit(self, X, y, l2=0.05, steps=600, lr=0.5):
+        X, y = np.asarray(X, float), np.asarray(y)
+        self.w, self.b = np.zeros(X.shape[1]), 0.0
+        for t in range(steps):
+            active = y * (X @ self.w + self.b) < 1
+            signed = y * active
+            eta = lr / np.sqrt(t + 1)
+            self.w -= eta * (l2 * self.w - X.T @ signed / len(y))
+            self.b += eta * signed.mean()
         return self
 
-    def decision_function(self, X):
-        return self._kernel(np.asarray(X, dtype=float), self.support_) @ self.dual_coef_ + self.intercept_
-
     def predict(self, X):
-        return self.classes_[(self.decision_function(X) >= 0).astype(int)]
+        return np.where(np.asarray(X) @ self.w + self.b >= 0, 1, -1)
 
 
 class DecisionTree:
-    def __init__(self, kind="classification", max_depth=4, min_leaf=3,
-                 criterion="gini", max_features=None, seed=0, min_gain=0.0):
-        if min_leaf < 1:
-            raise ValueError("min_leaf must be positive")
-        self.kind, self.criterion = kind, criterion
-        self.max_depth, self.min_leaf = max_depth, min_leaf
-        self.max_features, self.seed, self.min_gain = max_features, seed, min_gain
+    def __init__(self, depth=3, regression=False, max_features=None, seed=0):
+        self.depth, self.regression = depth, regression
+        self.max_features, self.seed = max_features, seed
 
     def fit(self, X, y, sample_weight=None):
-        X, y = np.asarray(X, dtype=float), np.asarray(y)
-        weight = np.ones(len(X)) if sample_weight is None else np.asarray(sample_weight, dtype=float)
-        if np.any(weight < 0) or not np.any(weight > 0):
-            raise ValueError("expected nonnegative weights with positive total")
-        positive = weight > 0
-        X, y, weight = X[positive], y[positive], weight[positive]
-        if self.kind == "regression":
-            y = y.astype(float)
-            stats = weight[:, None] * np.column_stack((np.ones(len(y)), y, y**2))
-        else:
-            self.classes_, target = np.unique(y, return_inverse=True)
-            stats = weight[:, None] * (target[:, None] == np.arange(len(self.classes_)))
-        return self._fit_stats(X, stats)
-
-    def _fit_stats(self, X, stats):
-        self.rng_ = np.random.default_rng(self.seed)
-        self.root_ = self._grow(X, stats, 0)
+        X, y = np.asarray(X, float), np.asarray(y)
+        weights = np.ones(len(y)) if sample_weight is None else np.asarray(sample_weight)
+        if not self.regression:
+            self.classes, y = np.unique(y, return_inverse=True)
+        self.rng = np.random.default_rng(self.seed)
+        self.root = self._grow(X, y, weights, self.depth)
         return self
 
-    def _leaf(self, stats):
-        if self.kind == "regression":
-            return stats[1] / stats[0]
-        return stats.argmax()
+    def _leaf(self, y, w):
+        if self.regression:
+            return np.average(y, weights=w)
+        return np.bincount(y, weights=w).argmax()
 
-    def _cost(self, stats):
-        if self.kind == "regression":
-            weight, target, square = np.moveaxis(stats, -1, 0)
-            return np.maximum(square - target**2 / weight, 0)
-        weight = stats.sum(axis=-1)
-        if self.criterion == "error":
-            return weight - stats.max(axis=-1)
-        p = stats / weight[..., None]
-        if self.criterion == "entropy":
-            log_p = np.log(np.where(p > 0, p, 1))
-            return -(stats * log_p).sum(axis=-1)
-        return weight * (1 - (p**2).sum(axis=-1))
+    def _loss(self, y, w):
+        if self.regression:
+            return w @ (y - self._leaf(y, w))**2
+        p = np.bincount(y, weights=w) / w.sum()
+        return w.sum() * (1 - p @ p)
 
-    def _grow(self, X, stats, depth):
-        total = stats.sum(axis=0)
-        if depth >= self.max_depth or len(X) < 2 * self.min_leaf:
-            return self._leaf(total)
-        features = np.arange(X.shape[1])
-        if self.max_features is not None and self.max_features < len(features):
-            features = self.rng_.choice(features, self.max_features, replace=False)
-        best, best_gain = None, max(1e-12, self.min_gain)
-        parent = self._cost(total)
-        for feature in features:
-            order = np.argsort(X[:, feature], kind="stable")
-            x = X[order, feature]
-            sizes = np.arange(1, len(x))
-            valid = (x[:-1] < x[1:]) & (sizes >= self.min_leaf) & (len(x) - sizes >= self.min_leaf)
-            if not valid.any():
-                continue
-            ordered = stats[order]
-            left = np.cumsum(ordered, axis=0)[:-1]
-            right = np.cumsum(ordered[::-1], axis=0)[::-1][1:]
-            gains = parent - self._cost(left) - self._cost(right)
-            gains[~valid] = -np.inf
-            cut = gains.argmax()
-            if gains[cut] > best_gain:
-                best_gain = gains[cut]
-                best = feature, x[cut], x[cut + 1], order[:cut + 1], order[cut + 1:]
+    def _grow(self, X, y, w, depth):
+        leaf = self._leaf(y, w)
+        if depth == 0 or np.all(y == y[0]):
+            return leaf
+        d = X.shape[1]
+        features = range(d)
+        if self.max_features is not None:
+            features = self.rng.choice(d, self.max_features, replace=False)
+        best, loss = None, self._loss(y, w)
+        for j, t, left in splits(X, features):
+            right = ~left
+            total = self._loss(y[left], w[left]) + self._loss(y[right], w[right])
+            if total < loss - 1e-12:
+                best, loss = (j, t, left), total
         if best is None:
-            return self._leaf(total)
-        feature, lower, upper, left, right = best
-        threshold = np.clip(lower / 2 + upper / 2, lower, np.nextafter(upper, lower))
-        return (feature, threshold, self._grow(X[left], stats[left], depth + 1),
-                self._grow(X[right], stats[right], depth + 1))
+            return leaf
+        j, t, left = best
+        right = ~left
+        return (j, t, self._grow(X[left], y[left], w[left], depth - 1),
+                self._grow(X[right], y[right], w[right], depth - 1))
 
     def predict(self, X):
-        predictions = []
-        for row in np.asarray(X):
-            node = self.root_
+        output = []
+        for x in X:
+            node = self.root
             while isinstance(node, tuple):
-                feature, threshold, left, right = node
-                node = left if row[feature] <= threshold else right
-            predictions.append(node)
-        if self.kind == "regression":
-            return np.asarray(predictions, dtype=float)
-        return self.classes_[np.asarray(predictions, dtype=int)]
+                j, t, left, right = node
+                node = left if x[j] <= t else right
+            output.append(node)
+        if self.regression:
+            return np.asarray(output, float)
+        return self.classes[np.asarray(output, int)]
 
 
 class KNN:
-    def __init__(self, k=7, kind="classification"):
-        self.k, self.kind = k, kind
+    def __init__(self, k=5, regression=False):
+        self.k, self.regression = k, regression
 
     def fit(self, X, y):
-        self.X_ = np.asarray(X, dtype=float)
-        if not 1 <= self.k <= len(self.X_):
-            raise ValueError("k must be between 1 and the sample count")
-        if self.kind == "regression":
-            self.target_ = np.asarray(y, dtype=float)
-        else:
-            self.classes_, self.target_ = np.unique(y, return_inverse=True)
+        self.X, self.y = np.asarray(X, float), np.asarray(y)
         return self
 
     def predict(self, X):
-        distance = ((np.asarray(X)[:, None, :] - self.X_)**2).sum(axis=-1)
-        indices = np.argsort(distance, axis=1, kind="stable")[:, :self.k]
-        labels = self.target_[indices]
-        if self.kind == "regression":
+        d2 = ((np.asarray(X)[:, None, :] - self.X)**2).sum(axis=2)
+        labels = self.y[np.argsort(d2, axis=1, kind="stable")[:, :self.k]]
+        if self.regression:
             return labels.mean(axis=1)
-        votes = (labels[:, :, None] == np.arange(len(self.classes_))).sum(axis=1)
-        return self.classes_[votes.argmax(axis=1)]
+        return np.array([majority(row) for row in labels])
 
 
 class KMeans:
-    def __init__(self, k=3, steps=100, tol=1e-6, seed=0):
-        self.k, self.steps, self.tol, self.seed = k, steps, tol, seed
+    def __init__(self, k=3, steps=50, seed=0):
+        self.k, self.steps, self.seed = k, steps, seed
 
-    def fit(self, X, init=None):
-        X = np.asarray(X, dtype=float)
-        if init is None:
-            indices = np.random.default_rng(self.seed).choice(len(X), self.k, replace=False)
-            init = X[indices]
-        self.centers_ = np.array(init, dtype=float, copy=True)
-        if self.k < 1 or self.centers_.shape != (self.k, X.shape[1]):
-            raise ValueError("expected a nonempty array of k initial centers")
-        self.history_ = [self.centers_.copy()]
+    def fit(self, X):
+        X = np.asarray(X, float)
+        rng = np.random.default_rng(self.seed)
+        self.centers = X[rng.choice(len(X), self.k, replace=False)]
         for _ in range(self.steps):
-            assignment = self.predict(X)
-            updated = self.centers_.copy()
-            for k in range(self.k):
-                cluster = X[assignment == k]
+            labels = self.predict(X)
+            for j in range(self.k):
+                cluster = X[labels == j]
                 if len(cluster):
-                    updated[k] = cluster.mean(axis=0)
-            change = np.max(np.linalg.norm(updated - self.centers_, axis=1))
-            self.centers_ = updated
-            self.history_.append(updated.copy())
-            if change <= self.tol:
-                break
+                    self.centers[j] = cluster.mean(axis=0)
         return self
 
     def predict(self, X):
-        distance = ((np.asarray(X)[:, None, :] - self.centers_)**2).sum(axis=-1)
-        return distance.argmin(axis=1)
+        return ((np.asarray(X)[:, None, :] - self.centers)**2).sum(axis=2).argmin(axis=1)
 
 
 class PCA:
-    def __init__(self, n_components=1):
-        self.n_components = n_components
-
-    def fit(self, X):
-        X = np.asarray(X, dtype=float)
-        if not 1 <= self.n_components <= min(X.shape):
-            raise ValueError("n_components must fit the reduced SVD")
-        self.mean_ = X.mean(axis=0)
-        _, values, right = np.linalg.svd(X - self.mean_, full_matrices=False)
-        self.components_ = right[:self.n_components]
-        self.variance_ = values[:self.n_components]**2 / len(X)
+    def fit(self, X, k=1):
+        X = np.asarray(X, float)
+        self.mean = X.mean(axis=0)
+        _, _, Vt = np.linalg.svd(X - self.mean, full_matrices=False)
+        self.components = Vt[:k]
         return self
 
     def transform(self, X):
-        return (np.asarray(X) - self.mean_) @ self.components_.T
+        return (np.asarray(X) - self.mean) @ self.components.T
 
     def inverse_transform(self, Z):
-        return np.asarray(Z) @ self.components_ + self.mean_
+        return np.asarray(Z) @ self.components + self.mean
 
 
 class GaussianMixture:
-    def __init__(self, k=3, steps=100, tol=1e-6, min_covar=1e-3, seed=0):
-        if k < 1 or min_covar <= 0:
-            raise ValueError("k and min_covar must be positive")
-        self.k, self.steps, self.tol = k, steps, tol
-        self.min_covar, self.seed = min_covar, seed
+    def __init__(self, k=3, steps=40, seed=0):
+        self.k, self.steps, self.seed = k, steps, seed
 
-    def _stabilize(self, cov):
-        values, vectors = np.linalg.eigh(cov)
-        return (vectors * np.maximum(values, self.min_covar)) @ vectors.T
-
-    def _log_joint(self, X):
-        log_joint = np.full((len(X), self.k), -np.inf)
-        for k in np.flatnonzero(self.weights_ > 0):
-            chol = np.linalg.cholesky(self.covariances_[k])
-            whitened = np.linalg.solve(chol, (X - self.means_[k]).T)
-            log_normalizer = X.shape[1] * np.log(2 * np.pi) + 2 * np.log(chol.diagonal()).sum()
-            log_joint[:, k] = np.log(self.weights_[k]) - 0.5 * (log_normalizer + (whitened**2).sum(axis=0))
-        return log_joint
-
-    def _snapshot(self):
-        return self.weights_.copy(), self.means_.copy(), self.covariances_.copy()
-
-    def fit(self, X, init=None):
-        X = np.asarray(X, dtype=float)
-        if init is None:
-            indices = np.random.default_rng(self.seed).choice(len(X), self.k, replace=False)
-            init = X[indices]
-        self.means_ = np.array(init, dtype=float, copy=True)
-        if self.means_.shape != (self.k, X.shape[1]):
-            raise ValueError("expected an array of k initial centers")
-        self.weights_ = np.full(self.k, 1 / self.k)
-        centered = X - X.mean(axis=0)
-        covariance = self._stabilize(centered.T @ centered / len(X))
-        self.covariances_ = np.repeat(covariance[None], self.k, axis=0)
-        self.history_ = [self._snapshot()]
-        log_joint = self._log_joint(X)
-        log_density = logsumexp(log_joint, axis=1, keepdims=True)
+    def fit(self, X):
+        X = np.asarray(X, float)
+        eye = np.eye(X.shape[1])
+        self.mean = KMeans(self.k, seed=self.seed).fit(X).centers
+        self.cov = np.repeat(eye[None], self.k, axis=0)
+        self.weights = np.full(self.k, 1 / self.k)
         for _ in range(self.steps):
-            responsibility = np.exp(log_joint - log_density)
-            mass = responsibility.sum(axis=0)
-            active = np.flatnonzero(mass > 0)
-            self.weights_ = mass / mass.sum()
-            for k in active:
-                weight = responsibility[:, k]
-                self.means_[k] = weight @ X / mass[k]
-                diff = X - self.means_[k]
-                covariance = (diff.T * weight) @ diff / mass[k]
-                self.covariances_[k] = self._stabilize(covariance)
-            self.history_.append(self._snapshot())
-            log_joint = self._log_joint(X)
-            updated = logsumexp(log_joint, axis=1, keepdims=True)
-            improvement = (updated - log_density).mean()
-            log_density = updated
-            if improvement <= self.tol:
-                break
+            r = self.predict_proba(X)
+            mass = np.maximum(r.sum(axis=0), 1e-12)
+            self.weights = mass / mass.sum()
+            self.mean = r.T @ X / mass[:, None]
+            for j in range(self.k):
+                diff = X - self.mean[j]
+                self.cov[j] = (diff.T * r[:, j]) @ diff / mass[j] + 1e-6 * eye
         return self
 
     def predict_proba(self, X):
-        log_joint = self._log_joint(np.asarray(X, dtype=float))
-        return np.exp(log_joint - logsumexp(log_joint, axis=1, keepdims=True))
+        log_p = np.column_stack([multivariate_normal.logpdf(X, m, c)
+                                 for m, c in zip(self.mean, self.cov)])
+        log_p += np.log(self.weights)
+        return np.exp(log_p - logsumexp(log_p, axis=1, keepdims=True))
 
     def predict(self, X):
         return self.predict_proba(X).argmax(axis=1)
 
 
 class RandomForest:
-    def __init__(self, n_estimators=30, kind="classification", max_depth=5,
-                 min_leaf=3, max_features=None, seed=0):
-        self.n_estimators, self.kind = n_estimators, kind
-        self.max_depth, self.min_leaf = max_depth, min_leaf
-        self.max_features, self.seed = max_features, seed
+    def __init__(self, trees=30, depth=4, regression=False, seed=0):
+        self.trees, self.depth = trees, depth
+        self.regression, self.seed = regression, seed
 
     def fit(self, X, y):
-        X, y = np.asarray(X, dtype=float), np.asarray(y)
-        self.classes_ = np.unique(y) if self.kind == "classification" else None
-        features = self.max_features or max(1, int(np.sqrt(X.shape[1])))
+        X, y = np.asarray(X), np.asarray(y)
         rng = np.random.default_rng(self.seed)
-        self.trees_ = []
-        for _ in range(self.n_estimators):
+        m = max(1, int(np.sqrt(X.shape[1])))
+        self.models = []
+        for _ in range(self.trees):
             rows = rng.integers(len(X), size=len(X))
-            tree = DecisionTree(kind=self.kind, max_depth=self.max_depth,
-                                min_leaf=self.min_leaf, max_features=features,
-                                seed=rng.integers(2**32))
-            self.trees_.append(tree.fit(X[rows], y[rows]))
+            tree = DecisionTree(self.depth, self.regression, m, seed=rng.integers(2**32))
+            self.models.append(tree.fit(X[rows], y[rows]))
         return self
 
     def predict(self, X):
-        votes = np.stack([tree.predict(X) for tree in self.trees_])
-        if self.kind == "regression":
-            return votes.mean(axis=0)
-        counts = (votes[:, :, None] == self.classes_).sum(axis=0)
-        return self.classes_[counts.argmax(axis=1)]
+        votes = np.column_stack([tree.predict(X) for tree in self.models])
+        if self.regression:
+            return votes.mean(axis=1)
+        return np.array([majority(row) for row in votes])
 
 
 class AdaBoost:
-    def __init__(self, n_estimators=35):
-        self.n_estimators = n_estimators
-
-    def fit(self, X, y):
-        X = np.asarray(X, dtype=float)
-        self.classes_, target = np.unique(y, return_inverse=True)
-        if len(self.classes_) != 2:
-            raise ValueError("expected two classes")
-        signs = 2 * target - 1
-        weights = np.full(len(X), 1 / len(X))
-        self.rounds_ = []
-        for _ in range(self.n_estimators):
-            stump = DecisionTree(max_depth=1, min_leaf=1, criterion="error")
-            tree = stump.fit(X, signs, weights)
-            prediction = tree.predict(X)
-            error = weights[prediction != signs].sum()
-            if error >= 0.5 - 1e-12:
+    def fit(self, X, y, rounds=30):
+        y = np.asarray(y)
+        w = np.full(len(y), 1 / len(y))
+        self.models = []
+        for _ in range(rounds):
+            stump = DecisionTree(depth=1).fit(X, y, sample_weight=w)
+            h = stump.predict(X)
+            error = w[h != y].sum()
+            if error >= 0.5:
                 break
-            safe_error = max(error, 1e-12)
-            vote = 0.5 * np.log((1 - safe_error) / safe_error)
-            self.rounds_.append((vote, tree))
+            alpha = 0.5 * np.log((1 - error) / max(error, 1e-12))
+            self.models.append((alpha, stump))
             if error == 0:
                 break
-            weights *= np.exp(-vote * signs * prediction)
-            weights /= weights.sum()
+            w *= np.exp(-alpha * y * h)
+            w /= w.sum()
         return self
 
-    def decision_function(self, X):
-        score = np.zeros(len(X))
-        for vote, tree in self.rounds_:
-            score += vote * tree.predict(X)
-        return score
-
     def predict(self, X):
-        return self.classes_[(self.decision_function(X) > 0).astype(int)]
+        score = sum((a * h.predict(X) for a, h in self.models), np.zeros(len(X)))
+        return np.where(score >= 0, 1, -1)
 
 
 class GradientBoosting:
-    def __init__(self, n_estimators=40, learning_rate=0.13, max_depth=2, min_leaf=4):
-        self.n_estimators, self.learning_rate = n_estimators, learning_rate
-        self.max_depth, self.min_leaf = max_depth, min_leaf
+    def __init__(self, trees=30, lr=0.1, depth=2):
+        self.trees, self.lr, self.depth = trees, lr, depth
 
-    def _fit_tree(self, X, residual):
-        tree = DecisionTree(kind="regression", max_depth=self.max_depth, min_leaf=self.min_leaf)
-        return tree.fit(X, residual)
+    def _tree(self, X, residual):
+        return DecisionTree(self.depth, regression=True).fit(X, residual).predict
 
     def fit(self, X, y):
-        X, y = np.asarray(X, dtype=float), np.asarray(y, dtype=float)
-        self.base_ = y.mean()
-        self.trees_ = []
-        prediction = np.full(len(X), self.base_)
-        for _ in range(self.n_estimators):
-            tree = self._fit_tree(X, y - prediction)
-            prediction += self.learning_rate * tree.predict(X)
-            self.trees_.append(tree)
+        X, y = np.asarray(X, float), np.asarray(y, float)
+        self.base, self.models = y.mean(), []
+        prediction = np.full(len(y), self.base)
+        for _ in range(self.trees):
+            tree = self._tree(X, y - prediction)
+            prediction += self.lr * tree(X)
+            self.models.append(tree)
         return self
 
     def predict(self, X):
-        prediction = np.full(len(X), self.base_)
-        for tree in self.trees_:
-            prediction += self.learning_rate * tree.predict(X)
-        return prediction
+        return self.base + self.lr * sum((tree(X) for tree in self.models), np.zeros(len(X)))
 
 
 class XGBoost(GradientBoosting):
-    class Tree(DecisionTree):
-        def __init__(self, max_depth, min_leaf, l2, gamma):
-            super().__init__(kind="regression", max_depth=max_depth,
-                             min_leaf=min_leaf, min_gain=gamma)
-            self.l2 = l2
-
-        def _leaf(self, stats):
-            gradient, hessian = stats
-            return -gradient / (hessian + self.l2)
-
-        def _cost(self, stats):
-            gradient, hessian = np.moveaxis(stats, -1, 0)
-            return -0.5 * gradient**2 / (hessian + self.l2)
-
-    def __init__(self, n_estimators=40, learning_rate=0.13, max_depth=2,
-                 min_leaf=4, l2=2.0, gamma=0.02):
-        super().__init__(n_estimators, learning_rate, max_depth, min_leaf)
-        if l2 < 0 or gamma < 0:
-            raise ValueError("l2 and gamma must be nonnegative")
+    def __init__(self, trees=30, lr=0.1, l2=1.0, gamma=0.0):
+        super().__init__(trees=trees, lr=lr)
         self.l2, self.gamma = l2, gamma
 
-    def _fit_tree(self, X, residual):
-        tree = self.Tree(self.max_depth, self.min_leaf, self.l2, self.gamma)
-        stats = np.column_stack((-residual, np.ones(len(residual))))
-        return tree._fit_stats(X, stats)
+    def _tree(self, X, residual):
+        def value(r):
+            return r.sum() / (len(r) + self.l2)
+
+        def score(r):
+            return r.sum() * value(r)
+
+        best = (0, np.inf, value(residual), 0.0)
+        parent, gain = score(residual), 0.0
+        for j, t, left in splits(X, range(X.shape[1])):
+            a, b = residual[left], residual[~left]
+            improvement = 0.5 * (score(a) + score(b) - parent) - self.gamma
+            if improvement > gain:
+                best, gain = (j, t, value(a), value(b)), improvement
+        j, t, a, b = best
+        return lambda Z: np.where(np.asarray(Z)[:, j] <= t, a, b)
