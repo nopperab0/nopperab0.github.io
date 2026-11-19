@@ -5,7 +5,7 @@ order: 2
 description: "Entropy, mutual information, cross-entropy, KL divergence, and a few uses in machine learning."
 ---
 
-Start with a discrete random variable $$X$$ and its distribution $$p(x)$$. We use natural logs for nats and base-two logs for bits, with $$0\ln0=0$$.
+Let $$X$$ have distribution $$p(x)$$ on a finite set. We use natural logs for nats and base-two logs for bits, with $$0\ln0=0$$.
 
 * TOC
 {:toc}
@@ -115,7 +115,7 @@ $$
 
 ## Natural gradient
 
-Suppose we want a small update measured by how much the model distribution changes. For a smooth model, the second-order approximation of KL gives
+Suppose we want a small update measured by how much the model distribution changes. For a smooth model with fixed support, the second-order approximation of KL gives
 
 $$
 \begin{aligned}

@@ -45,10 +45,6 @@ def splits(X, features):
 
 Fit $$y_i=w^\top x_i+b+\epsilon_i$$ by least squares, which is maximum likelihood under independent Gaussian noise of fixed variance. Ridge adds a squared penalty to $$w$$.
 
-![Noisy observations around a linear function]({{ '/assets/classical-ml/linear-regression.png' | relative_url }}){: width="420"}
-
-Noisy samples around a line. [Rosasco, Chapter 1, Figure 2](https://lcsl.unige.it/courses/ml/1617/MLNotes.pdf#page=6)
-
 $$
 \begin{aligned}
 L(w,b)&=\tfrac12\|Xw+b\mathbf1-y\|^2+\tfrac{\lambda}{2}\|w\|^2,\\
@@ -58,6 +54,10 @@ L(w,b)&=\tfrac12\|Xw+b\mathbf1-y\|^2+\tfrac{\lambda}{2}\|w\|^2,\\
 $$
 
 Here $$X_c$$ and $$y_c$$ are centered. Ordinary least squares uses $$\lambda=0$$.
+
+![Noisy observations around a linear function]({{ '/assets/classical-ml/linear-regression.png' | relative_url }}){: width="420"}
+
+Noisy samples around a line. [Rosasco, Chapter 1, Figure 2](https://lcsl.unige.it/courses/ml/1617/MLNotes.pdf#page=6)
 
 ~~~python
 class LinearRegression:
@@ -151,10 +151,6 @@ class GaussianNaiveBayes:
 
 For $$y_i\in\{-1,1\}$$, set $$f_i=w^\top x_i+b$$. On separable data we can scale $$w,b$$ to make $$\min_i y_i f_i=1$$, giving a width $$2/\|w\|$$ between the two margin planes.
 
-![A decision boundary and its two margin lines]({{ '/assets/classical-ml/svm-margin.png' | relative_url }}){: width="370"}
-
-The circled points are support vectors. [Rosasco, Chapter 9, Figure 1](https://lcsl.unige.it/courses/ml/1617/MLNotes.pdf#page=38)
-
 $$
 \begin{aligned}
 \text{Hard margin}\quad &\min_{w,b}\ \tfrac12\|w\|^2
@@ -166,6 +162,10 @@ L(w,b)&=\tfrac{\lambda}{2}\|w\|^2+\tfrac1n\sum_i\max(0,1-y_i f_i).
 $$
 
 The linear implementation updates on points with $$y_i f_i<1$$. A kernel SVM uses inner products $$K(x,z)=\phi(x)^\top\phi(z)$$ in feature space.
+
+![A decision boundary and its two margin lines]({{ '/assets/classical-ml/svm-margin.png' | relative_url }}){: width="370"}
+
+The circled points are support vectors. [Rosasco, Chapter 9, Figure 1](https://lcsl.unige.it/courses/ml/1617/MLNotes.pdf#page=38)
 
 ~~~python
 class SVM:
