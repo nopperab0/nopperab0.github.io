@@ -1,5 +1,5 @@
 ---
-title: "Reinforcement Learning"
+title: "A Stroll Through Reinforcement Learning"
 category: "Machine Learning"
 order: 3
 description: "From policy gradients and Q-learning to the objectives behind language-model post-training."
